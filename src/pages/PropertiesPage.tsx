@@ -23,9 +23,9 @@ export default function PropertiesPage() {
   const cities = [...new Set(properties.map(p => p.city))];
 
   const filtered = properties.filter(p => {
-    if (filterCity && p.city !== filterCity) return false;
-    if (filterType && p.type !== filterType) return false;
-    if (filterStatus && p.status !== filterStatus) return false;
+    if (filterCity && filterCity !== "all" && p.city !== filterCity) return false;
+    if (filterType && filterType !== "all" && p.type !== filterType) return false;
+    if (filterStatus && filterStatus !== "all" && p.status !== filterStatus) return false;
     return true;
   });
 

@@ -16,7 +16,7 @@ export default function TransactionsPage() {
   const [open, setOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
 
-  const filtered = txns.filter(t => !filterStatus || t.status === filterStatus);
+  const filtered = txns.filter(t => !filterStatus || filterStatus === "all" || t.status === filterStatus);
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
