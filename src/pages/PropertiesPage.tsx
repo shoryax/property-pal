@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -8,17 +8,40 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-import { properties as initialProperties, formatCurrency } from "@/data/mockData";
 import { Property } from "@/types";
 import { toast } from "sonner";
+import { propertiesApi, ownersApi } from "@/lib/supabaseClient";
 
 export default function PropertiesPage() {
-  const [properties, setProperties] = useState<Property[]>(initialProperties);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [owners, setOwners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Property | null>(null);
   const [filterCity, setFilterCity] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [propertiesData, ownersData] = await Promise.all([
+        propertiesApi.getAll(),
+        ownersApi.getAll()
+      ]);
+      setProperties(propertiesData);
+      setOwners(ownersData);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const cities = [...new Set(properties.map(p => p.city))];
 
@@ -29,11 +52,11 @@ export default function PropertiesPage() {
     return true;
   });
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Property = {
-      property_id: editing?.property_id || `p${Date.now()}`,
+    const data = {
+      owner_id: fd.get("owner_id") as string,
       title: fd.get("title") as string,
       type: fd.get("type") as Property["type"],
       address: fd.get("address") as string,
@@ -46,30 +69,50 @@ export default function PropertiesPage() {
       description: fd.get("description") as string,
       listed_date: fd.get("listed_date") as string || new Date().toISOString().split("T")[0],
     };
-    if (editing) {
-      setProperties(prev => prev.map(p => p.property_id === editing.property_id ? data : p));
-      toast.success("Property updated successfully");
-    } else {
-      setProperties(prev => [...prev, data]);
-      toast.success("Property added successfully");
+    try {
+      if (editing) {
+        await propertiesApi.update(editing.property_id, data);
+        toast.success("Property updated successfully");
+      } else {
+        await propertiesApi.create(data);
+        toast.success("Property added successfully");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadData();
+    } catch (error) {
+      console.error("Error saving property:", error);
+      toast.error("Failed to save property");
     }
-    setEditing(null);
-    setOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    setProperties(prev => prev.filter(p => p.property_id !== id));
-    toast.success("Property deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await propertiesApi.delete(id);
+      toast.success("Property deleted");
+      loadData();
+    } catch (error) {
+      console.error("Error deleting property:", error);
+      toast.error("Failed to delete property");
+    }
   };
 
   const columns = [
     { key: "title", label: "Title" },
     { key: "type", label: "Type", render: (p: Property) => <span className="capitalize">{p.type}</span> },
     { key: "city", label: "City" },
-    { key: "area_sqft", label: "Area (sqft)", render: (p: Property) => p.area_sqft.toLocaleString() },
+    { key: "area_sqft", label: "Area (sqft)", render: (p: Property) => p.area_sqft?.toLocaleString() },
     { key: "price", label: "Price", render: (p: Property) => formatCurrency(p.price) },
     { key: "status", label: "Status", render: (p: Property) => <StatusBadge status={p.status} /> },
   ];
+
+  function formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading properties...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -84,6 +127,14 @@ export default function PropertiesPage() {
               <DialogTitle>{editing ? "Edit Property" : "Add Property"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSave} className="space-y-4">
+              <div><Label>Owner</Label>
+                <Select name="owner_id" defaultValue={editing?.owner_id}>
+                  <SelectTrigger><SelectValue placeholder="Select owner" /></SelectTrigger>
+                  <SelectContent>
+                    {owners.map(o => <SelectItem key={o.owner_id} value={o.owner_id}>{o.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Label>Title</Label>

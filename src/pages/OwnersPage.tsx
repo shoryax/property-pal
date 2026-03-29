@@ -1,24 +1,41 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil } from "lucide-react";
-import { owners as initialOwners, properties } from "@/data/mockData";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Owner } from "@/types";
 import { toast } from "sonner";
+import { ownersApi } from "@/lib/supabaseClient";
 
 export default function OwnersPage() {
-  const [ownersData, setOwners] = useState<Owner[]>(initialOwners);
+  const [ownersData, setOwners] = useState<Owner[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Owner | null>(null);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    loadOwners();
+  }, []);
+
+  const loadOwners = async () => {
+    try {
+      setLoading(true);
+      const data = await ownersApi.getAll();
+      setOwners(data);
+    } catch (error) {
+      console.error("Error loading owners:", error);
+      toast.error("Failed to load owners");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Owner = {
-      owner_id: editing?.owner_id || `o${Date.now()}`,
+    const data = {
       name: fd.get("name") as string,
       email: fd.get("email") as string,
       phone: fd.get("phone") as string,
@@ -26,15 +43,32 @@ export default function OwnersPage() {
       id_proof_type: fd.get("id_proof_type") as string,
       id_proof_number: fd.get("id_proof_number") as string,
     };
-    if (editing) {
-      setOwners(prev => prev.map(o => o.owner_id === editing.owner_id ? data : o));
-      toast.success("Owner updated");
-    } else {
-      setOwners(prev => [...prev, data]);
-      toast.success("Owner added");
+    try {
+      if (editing) {
+        await ownersApi.update(editing.owner_id, data);
+        toast.success("Owner updated");
+      } else {
+        await ownersApi.create(data);
+        toast.success("Owner added");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadOwners();
+    } catch (error) {
+      console.error("Error saving owner:", error);
+      toast.error("Failed to save owner");
     }
-    setEditing(null);
-    setOpen(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await ownersApi.delete(id);
+      toast.success("Owner deleted");
+      loadOwners();
+    } catch (error) {
+      console.error("Error deleting owner:", error);
+      toast.error("Failed to delete owner");
+    }
   };
 
   const columns = [
@@ -44,6 +78,10 @@ export default function OwnersPage() {
     { key: "address", label: "Address" },
     { key: "id_proof_type", label: "ID Proof" },
   ];
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading owners...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -69,9 +107,17 @@ export default function OwnersPage() {
           </DialogContent>
         </Dialog>
       </div>
-      <DataTable data={ownersData} columns={columns} searchPlaceholder="Search owners..." actions={(o: Owner) => (
-        <Button variant="ghost" size="sm" onClick={() => { setEditing(o); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
-      )} />
+      <DataTable
+        data={ownersData}
+        columns={columns}
+        searchPlaceholder="Search owners..."
+        actions={(o: Owner) => (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(o); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => handleDelete(o.owner_id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        )}
+      />
     </div>
   );
 }

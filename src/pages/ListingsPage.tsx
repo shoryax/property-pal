@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -6,21 +6,49 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil } from "lucide-react";
-import { listings as initialListings, properties, agents, owners, formatCurrency, getPropertyById, getAgentById, getOwnerById } from "@/data/mockData";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Listing } from "@/types";
 import { toast } from "sonner";
+import { listingsApi, propertiesApi, agentsApi, ownersApi } from "@/lib/supabaseClient";
 
 export default function ListingsPage() {
-  const [listingsData, setListings] = useState<Listing[]>(initialListings);
+  const [listingsData, setListings] = useState<Listing[]>([]);
+  const [properties, setProperties] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [owners, setOwners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Listing | null>(null);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [listings, propertiesData, agentsData, ownersData] = await Promise.all([
+        listingsApi.getAll(),
+        propertiesApi.getAll(),
+        agentsApi.getAll(),
+        ownersApi.getAll()
+      ]);
+      setListings(listings);
+      setProperties(propertiesData);
+      setAgents(agentsData);
+      setOwners(ownersData);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Listing = {
-      listing_id: editing?.listing_id || `l${Date.now()}`,
+    const data = {
       property_id: fd.get("property_id") as string,
       agent_id: fd.get("agent_id") as string,
       owner_id: fd.get("owner_id") as string,
@@ -30,26 +58,51 @@ export default function ListingsPage() {
       expiry_date: fd.get("expiry_date") as string,
       status: fd.get("status") as string,
     };
-    if (editing) {
-      setListings(prev => prev.map(l => l.listing_id === editing.listing_id ? data : l));
-      toast.success("Listing updated");
-    } else {
-      setListings(prev => [...prev, data]);
-      toast.success("Listing created");
+    try {
+      if (editing) {
+        await listingsApi.update(editing.listing_id, data);
+        toast.success("Listing updated");
+      } else {
+        await listingsApi.create(data);
+        toast.success("Listing created");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadData();
+    } catch (error) {
+      console.error("Error saving listing:", error);
+      toast.error("Failed to save listing");
     }
-    setEditing(null);
-    setOpen(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await listingsApi.delete(id);
+      toast.success("Listing deleted");
+      loadData();
+    } catch (error) {
+      console.error("Error deleting listing:", error);
+      toast.error("Failed to delete listing");
+    }
   };
 
   const columns = [
-    { key: "property_id", label: "Property", render: (l: Listing) => getPropertyById(l.property_id)?.title || l.property_id },
-    { key: "agent_id", label: "Agent", render: (l: Listing) => getAgentById(l.agent_id)?.name || l.agent_id },
-    { key: "owner_id", label: "Owner", render: (l: Listing) => getOwnerById(l.owner_id)?.name || l.owner_id },
+    { key: "property_id", label: "Property", render: (l: Listing) => l.property?.title || l.property_id },
+    { key: "agent_id", label: "Agent", render: (l: Listing) => l.agent?.name || l.agent_id },
+    { key: "owner_id", label: "Owner", render: (l: Listing) => l.owner?.name || l.owner_id },
     { key: "listing_type", label: "Type", render: (l: Listing) => <span className="capitalize">{l.listing_type}</span> },
     { key: "asking_price", label: "Asking Price", render: (l: Listing) => formatCurrency(l.asking_price) },
     { key: "listing_date", label: "Listed" },
     { key: "status", label: "Status", render: (l: Listing) => <StatusBadge status={l.status} /> },
   ];
+
+  function formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading listings...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -117,9 +170,14 @@ export default function ListingsPage() {
         searchKey="listing_id"
         searchPlaceholder="Search listings..."
         actions={(l: Listing) => (
-          <Button variant="ghost" size="sm" onClick={() => { setEditing(l); setOpen(true); }}>
-            <Pencil className="h-4 w-4" />
-          </Button>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(l); setOpen(true); }}>
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => handleDelete(l.listing_id)}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
         )}
       />
     </div>

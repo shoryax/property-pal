@@ -1,25 +1,42 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Pencil } from "lucide-react";
-import { buyers as initialBuyers, formatCurrency } from "@/data/mockData";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Buyer } from "@/types";
 import { toast } from "sonner";
+import { buyersApi } from "@/lib/supabaseClient";
 
 export default function BuyersPage() {
-  const [buyersData, setBuyers] = useState<Buyer[]>(initialBuyers);
+  const [buyersData, setBuyers] = useState<Buyer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Buyer | null>(null);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    loadBuyers();
+  }, []);
+
+  const loadBuyers = async () => {
+    try {
+      setLoading(true);
+      const data = await buyersApi.getAll();
+      setBuyers(data);
+    } catch (error) {
+      console.error("Error loading buyers:", error);
+      toast.error("Failed to load buyers");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Buyer = {
-      buyer_id: editing?.buyer_id || `b${Date.now()}`,
+    const data = {
       name: fd.get("name") as string,
       email: fd.get("email") as string,
       phone: fd.get("phone") as string,
@@ -28,15 +45,32 @@ export default function BuyersPage() {
       preferred_city: fd.get("preferred_city") as string,
       preferred_type: fd.get("preferred_type") as string,
     };
-    if (editing) {
-      setBuyers(prev => prev.map(b => b.buyer_id === editing.buyer_id ? data : b));
-      toast.success("Buyer updated");
-    } else {
-      setBuyers(prev => [...prev, data]);
-      toast.success("Buyer added");
+    try {
+      if (editing) {
+        await buyersApi.update(editing.buyer_id, data);
+        toast.success("Buyer updated");
+      } else {
+        await buyersApi.create(data);
+        toast.success("Buyer added");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadBuyers();
+    } catch (error) {
+      console.error("Error saving buyer:", error);
+      toast.error("Failed to save buyer");
     }
-    setEditing(null);
-    setOpen(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await buyersApi.delete(id);
+      toast.success("Buyer deleted");
+      loadBuyers();
+    } catch (error) {
+      console.error("Error deleting buyer:", error);
+      toast.error("Failed to delete buyer");
+    }
   };
 
   const columns = [
@@ -48,6 +82,14 @@ export default function BuyersPage() {
     { key: "preferred_city", label: "Preferred City" },
     { key: "preferred_type", label: "Preferred Type", render: (b: Buyer) => <span className="capitalize">{b.preferred_type}</span> },
   ];
+
+  function formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading buyers...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -84,9 +126,17 @@ export default function BuyersPage() {
           </DialogContent>
         </Dialog>
       </div>
-      <DataTable data={buyersData} columns={columns} searchPlaceholder="Search buyers..." actions={(b: Buyer) => (
-        <Button variant="ghost" size="sm" onClick={() => { setEditing(b); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
-      )} />
+      <DataTable
+        data={buyersData}
+        columns={columns}
+        searchPlaceholder="Search buyers..."
+        actions={(b: Buyer) => (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(b); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => handleDelete(b.buyer_id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        )}
+      />
     </div>
   );
 }

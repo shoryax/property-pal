@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -7,45 +7,91 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil } from "lucide-react";
-import { inspections as initialInspections, properties, buyers, getPropertyById, getBuyerById } from "@/data/mockData";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Inspection } from "@/types";
 import { toast } from "sonner";
+import { inspectionsApi, propertiesApi, buyersApi } from "@/lib/supabaseClient";
 
 export default function InspectionsPage() {
-  const [inspectionsData, setInspections] = useState<Inspection[]>(initialInspections);
+  const [inspectionsData, setInspections] = useState<Inspection[]>([]);
+  const [properties, setProperties] = useState<any[]>([]);
+  const [buyers, setBuyers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inspection | null>(null);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [inspections, propertiesData, buyersData] = await Promise.all([
+        inspectionsApi.getAll(),
+        propertiesApi.getAll(),
+        buyersApi.getAll()
+      ]);
+      setInspections(inspections);
+      setProperties(propertiesData);
+      setBuyers(buyersData);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Inspection = {
-      inspection_id: editing?.inspection_id || `i${Date.now()}`,
+    const data = {
       property_id: fd.get("property_id") as string,
       buyer_id: fd.get("buyer_id") as string,
       scheduled_date: fd.get("scheduled_date") as string,
       status: fd.get("status") as Inspection["status"],
       notes: fd.get("notes") as string,
     };
-    if (editing) {
-      setInspections(prev => prev.map(i => i.inspection_id === editing.inspection_id ? data : i));
-      toast.success("Inspection updated");
-    } else {
-      setInspections(prev => [...prev, data]);
-      toast.success("Inspection scheduled");
+    try {
+      if (editing) {
+        await inspectionsApi.update(editing.inspection_id, data);
+        toast.success("Inspection updated");
+      } else {
+        await inspectionsApi.create(data);
+        toast.success("Inspection scheduled");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadData();
+    } catch (error) {
+      console.error("Error saving inspection:", error);
+      toast.error("Failed to save inspection");
     }
-    setEditing(null);
-    setOpen(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await inspectionsApi.delete(id);
+      toast.success("Inspection deleted");
+      loadData();
+    } catch (error) {
+      console.error("Error deleting inspection:", error);
+      toast.error("Failed to delete inspection");
+    }
   };
 
   const columns = [
-    { key: "property_id", label: "Property", render: (i: Inspection) => getPropertyById(i.property_id)?.title || i.property_id },
-    { key: "buyer_id", label: "Buyer", render: (i: Inspection) => getBuyerById(i.buyer_id)?.name || i.buyer_id },
+    { key: "property_id", label: "Property", render: (i: Inspection) => i.property?.title || i.property_id },
+    { key: "buyer_id", label: "Buyer", render: (i: Inspection) => i.buyer?.name || i.buyer_id },
     { key: "scheduled_date", label: "Scheduled Date" },
     { key: "status", label: "Status", render: (i: Inspection) => <StatusBadge status={i.status} /> },
     { key: "notes", label: "Notes" },
   ];
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading inspections...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -89,9 +135,18 @@ export default function InspectionsPage() {
           </DialogContent>
         </Dialog>
       </div>
-      <DataTable data={inspectionsData} columns={columns} searchKey="inspection_id" searchPlaceholder="Search inspections..." actions={(i: Inspection) => (
-        <Button variant="ghost" size="sm" onClick={() => { setEditing(i); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
-      )} />
+      <DataTable
+        data={inspectionsData}
+        columns={columns}
+        searchKey="inspection_id"
+        searchPlaceholder="Search inspections..."
+        actions={(i: Inspection) => (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(i); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => handleDelete(i.inspection_id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        )}
+      />
     </div>
   );
 }

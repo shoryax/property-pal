@@ -1,36 +1,77 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, ClipboardList, ArrowRightLeft, UserCheck } from "lucide-react";
-import { properties, listings, transactions, agents, formatCurrency, getAgentById, getBuyerById, getListingById, getPropertyById } from "@/data/mockData";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-
-const stats = [
-  { label: "Total Properties", value: properties.length, icon: Building2, color: "text-primary" },
-  { label: "Active Listings", value: listings.filter(l => l.status === 'active').length, icon: ClipboardList, color: "text-success" },
-  { label: "Completed Transactions", value: transactions.filter(t => t.status === 'completed').length, icon: ArrowRightLeft, color: "text-warning" },
-  { label: "Registered Agents", value: agents.length, icon: UserCheck, color: "text-chart-4" },
-];
-
-const typeData = [
-  { name: 'Apartment', value: properties.filter(p => p.type === 'apartment').length },
-  { name: 'Villa', value: properties.filter(p => p.type === 'villa').length },
-  { name: 'Plot', value: properties.filter(p => p.type === 'plot').length },
-  { name: 'Commercial', value: properties.filter(p => p.type === 'commercial').length },
-];
+import { propertiesApi, listingsApi, transactionsApi, agentsApi } from "@/lib/supabaseClient";
+import { toast } from "sonner";
 
 const COLORS = ['hsl(217, 91%, 60%)', 'hsl(142, 76%, 36%)', 'hsl(38, 92%, 50%)', 'hsl(280, 67%, 52%)'];
 
-const monthlyData = [
-  { month: 'Jan', sales: 1 },
-  { month: 'Feb', sales: 0 },
-  { month: 'Mar', sales: 2 },
-  { month: 'Apr', sales: 1 },
-  { month: 'May', sales: 1 },
-  { month: 'Jun', sales: 0 },
-];
-
 export default function Dashboard() {
+  const [properties, setProperties] = useState<any[]>([]);
+  const [listings, setListings] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [propertiesData, listingsData, transactionsData, agentsData] = await Promise.all([
+        propertiesApi.getAll(),
+        listingsApi.getAll(),
+        transactionsApi.getAll(),
+        agentsApi.getAll()
+      ]);
+      setProperties(propertiesData);
+      setListings(listingsData);
+      setTransactions(transactionsData);
+      setAgents(agentsData);
+    } catch (error) {
+      console.error("Error loading dashboard data:", error);
+      toast.error("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stats = [
+    { label: "Total Properties", value: properties.length, icon: Building2, color: "text-primary" },
+    { label: "Active Listings", value: listings.filter(l => l.status === 'active').length, icon: ClipboardList, color: "text-success" },
+    { label: "Completed Transactions", value: transactions.filter(t => t.status === 'completed').length, icon: ArrowRightLeft, color: "text-warning" },
+    { label: "Registered Agents", value: agents.length, icon: UserCheck, color: "text-chart-4" },
+  ];
+
+  const typeData = [
+    { name: 'Apartment', value: properties.filter(p => p.type === 'apartment').length },
+    { name: 'Villa', value: properties.filter(p => p.type === 'villa').length },
+    { name: 'Plot', value: properties.filter(p => p.type === 'plot').length },
+    { name: 'Commercial', value: properties.filter(p => p.type === 'commercial').length },
+  ];
+
+  const monthlyData = [
+    { month: 'Jan', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-01')).length },
+    { month: 'Feb', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-02')).length },
+    { month: 'Mar', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-03')).length },
+    { month: 'Apr', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-04')).length },
+    { month: 'May', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-05')).length },
+    { month: 'Jun', sales: transactions.filter(t => t.transaction_date?.startsWith('2024-06')).length },
+  ];
+
+  function formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading dashboard...</p></div>;
+  }
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -107,18 +148,17 @@ export default function Dashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.map((t) => {
-                const listing = getListingById(t.listing_id);
-                const property = listing ? getPropertyById(listing.property_id) : null;
-                const buyer = getBuyerById(t.buyer_id);
-                const agent = getAgentById(t.agent_id);
+              {transactions.slice(0, 10).map((t) => {
+                const property = t.listing?.property;
+                const buyer = t.buyer;
+                const agent = t.agent;
                 return (
                   <TableRow key={t.transaction_id}>
                     <TableCell className="font-medium">{property?.title || 'N/A'}</TableCell>
                     <TableCell>{buyer?.name || 'N/A'}</TableCell>
                     <TableCell>{agent?.name || 'N/A'}</TableCell>
                     <TableCell>{formatCurrency(t.sale_price)}</TableCell>
-                    <TableCell>{t.transaction_date}</TableCell>
+                    <TableCell>{t.transaction_date || 'N/A'}</TableCell>
                     <TableCell><StatusBadge status={t.status} /></TableCell>
                   </TableRow>
                 );

@@ -55,10 +55,23 @@ export interface Listing {
   listing_date: string;
   expiry_date: string;
   status: string;
-  // Joined fields
-  property?: Property;
-  agent?: Agent;
-  owner?: Owner;
+  property?: {
+    property_id: string;
+    title: string;
+    type: string;
+    address: string;
+    city: string;
+    price: number;
+    status: string;
+  };
+  agent?: {
+    agent_id: string;
+    name: string;
+  };
+  owner?: {
+    owner_id: string;
+    name: string;
+  };
 }
 
 export interface Transaction {
@@ -70,10 +83,26 @@ export interface Transaction {
   transaction_date: string;
   payment_mode: string;
   status: 'pending' | 'completed' | 'cancelled';
-  // Joined
-  listing?: Listing;
-  buyer?: Buyer;
-  agent?: Agent;
+  listing?: {
+    listing_id: string;
+    property?: {
+      property_id: string;
+      title: string;
+      type: string;
+      address: string;
+      city: string;
+      price: number;
+      status: string;
+    };
+  };
+  buyer?: {
+    buyer_id: string;
+    name: string;
+  };
+  agent?: {
+    agent_id: string;
+    name: string;
+  };
 }
 
 export interface Inspection {
@@ -83,7 +112,15 @@ export interface Inspection {
   scheduled_date: string;
   status: 'scheduled' | 'completed' | 'cancelled';
   notes: string;
-  // Joined
-  property?: Property;
-  buyer?: Buyer;
+  property?: {
+    property_id: string;
+    title: string;
+    type: string;
+    address: string;
+    city: string;
+  };
+  buyer?: {
+    buyer_id: string;
+    name: string;
+  };
 }

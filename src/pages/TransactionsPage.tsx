@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -6,23 +6,51 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus } from "lucide-react";
-import { transactions as initialTransactions, listings, agents, buyers, formatCurrency, getListingById, getPropertyById, getAgentById, getBuyerById } from "@/data/mockData";
+import { Plus, Trash2 } from "lucide-react";
 import { Transaction } from "@/types";
 import { toast } from "sonner";
+import { transactionsApi, listingsApi, buyersApi, agentsApi } from "@/lib/supabaseClient";
 
 export default function TransactionsPage() {
-  const [txns, setTxns] = useState<Transaction[]>(initialTransactions);
+  const [txns, setTxns] = useState<Transaction[]>([]);
+  const [listings, setListings] = useState<any[]>([]);
+  const [buyers, setBuyers] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
 
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [transactions, listingsData, buyersData, agentsData] = await Promise.all([
+        transactionsApi.getAll(),
+        listingsApi.getAll(),
+        buyersApi.getAll(),
+        agentsApi.getAll()
+      ]);
+      setTxns(transactions);
+      setListings(listingsData);
+      setBuyers(buyersData);
+      setAgents(agentsData);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filtered = txns.filter(t => !filterStatus || filterStatus === "all" || t.status === filterStatus);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Transaction = {
-      transaction_id: `t${Date.now()}`,
+    const data = {
       listing_id: fd.get("listing_id") as string,
       buyer_id: fd.get("buyer_id") as string,
       agent_id: fd.get("agent_id") as string,
@@ -31,20 +59,48 @@ export default function TransactionsPage() {
       payment_mode: fd.get("payment_mode") as string,
       status: fd.get("status") as Transaction["status"],
     };
-    setTxns(prev => [...prev, data]);
-    toast.success("Transaction recorded");
-    setOpen(false);
+    try {
+      await transactionsApi.create(data);
+      toast.success("Transaction recorded");
+      setOpen(false);
+      loadData();
+    } catch (error) {
+      console.error("Error saving transaction:", error);
+      toast.error("Failed to record transaction");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await transactionsApi.delete(id);
+      toast.success("Transaction deleted");
+      loadData();
+    } catch (error) {
+      console.error("Error deleting transaction:", error);
+      toast.error("Failed to delete transaction");
+    }
   };
 
   const columns = [
-    { key: "listing_id", label: "Property", render: (t: Transaction) => { const l = getListingById(t.listing_id); return l ? getPropertyById(l.property_id)?.title || 'N/A' : t.listing_id; }},
-    { key: "buyer_id", label: "Buyer", render: (t: Transaction) => getBuyerById(t.buyer_id)?.name || t.buyer_id },
-    { key: "agent_id", label: "Agent", render: (t: Transaction) => getAgentById(t.agent_id)?.name || t.agent_id },
+    { key: "listing_id", label: "Property", render: (t: Transaction) => {
+      const prop = t.listing?.property;
+      return prop?.title || t.listing_id;
+    }},
+    { key: "buyer_id", label: "Buyer", render: (t: Transaction) => t.buyer?.name || t.buyer_id },
+    { key: "agent_id", label: "Agent", render: (t: Transaction) => t.agent?.name || t.agent_id },
     { key: "sale_price", label: "Amount", render: (t: Transaction) => formatCurrency(t.sale_price) },
     { key: "transaction_date", label: "Date" },
     { key: "payment_mode", label: "Payment Mode" },
     { key: "status", label: "Status", render: (t: Transaction) => <StatusBadge status={t.status} /> },
   ];
+
+  function formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+  }
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading transactions...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -60,7 +116,7 @@ export default function TransactionsPage() {
               <div><Label>Listing</Label>
                 <Select name="listing_id">
                   <SelectTrigger><SelectValue placeholder="Select listing" /></SelectTrigger>
-                  <SelectContent>{listings.map(l => <SelectItem key={l.listing_id} value={l.listing_id}>{getPropertyById(l.property_id)?.title || l.listing_id}</SelectItem>)}</SelectContent>
+                  <SelectContent>{listings.map(l => <SelectItem key={l.listing_id} value={l.listing_id}>{l.property?.title || l.listing_id}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div><Label>Buyer</Label>
@@ -109,7 +165,17 @@ export default function TransactionsPage() {
         {filterStatus && <Button variant="ghost" onClick={() => setFilterStatus("")}>Clear</Button>}
       </div>
 
-      <DataTable data={filtered} columns={columns} searchKey="transaction_id" searchPlaceholder="Search transactions..." />
+      <DataTable
+        data={filtered}
+        columns={columns}
+        searchKey="transaction_id"
+        searchPlaceholder="Search transactions..."
+        actions={(t: Transaction) => (
+          <Button variant="ghost" size="sm" onClick={() => handleDelete(t.transaction_id)}>
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        )}
+      />
     </div>
   );
 }

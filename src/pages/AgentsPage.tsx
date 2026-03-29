@@ -1,24 +1,49 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil } from "lucide-react";
-import { agents as initialAgents, listings, transactions } from "@/data/mockData";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Agent } from "@/types";
 import { toast } from "sonner";
+import { agentsApi, listingsApi, transactionsApi } from "@/lib/supabaseClient";
 
 export default function AgentsPage() {
-  const [agentsData, setAgents] = useState<Agent[]>(initialAgents);
+  const [agentsData, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
+  const [listings, setListings] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
 
-  const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [agents, listingsData, transactionsData] = await Promise.all([
+        agentsApi.getAll(),
+        listingsApi.getAll(),
+        transactionsApi.getAll()
+      ]);
+      setAgents(agents);
+      setListings(listingsData);
+      setTransactions(transactionsData);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const data: Agent = {
-      agent_id: editing?.agent_id || `a${Date.now()}`,
+    const data = {
       name: fd.get("name") as string,
       email: fd.get("email") as string,
       phone: fd.get("phone") as string,
@@ -27,15 +52,32 @@ export default function AgentsPage() {
       commission_rate: Number(fd.get("commission_rate")),
       joined_date: fd.get("joined_date") as string || new Date().toISOString().split("T")[0],
     };
-    if (editing) {
-      setAgents(prev => prev.map(a => a.agent_id === editing.agent_id ? data : a));
-      toast.success("Agent updated");
-    } else {
-      setAgents(prev => [...prev, data]);
-      toast.success("Agent added");
+    try {
+      if (editing) {
+        await agentsApi.update(editing.agent_id, data);
+        toast.success("Agent updated");
+      } else {
+        await agentsApi.create(data);
+        toast.success("Agent added");
+      }
+      setEditing(null);
+      setOpen(false);
+      loadData();
+    } catch (error) {
+      console.error("Error saving agent:", error);
+      toast.error("Failed to save agent");
     }
-    setEditing(null);
-    setOpen(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await agentsApi.delete(id);
+      toast.success("Agent deleted");
+      loadData();
+    } catch (error) {
+      console.error("Error deleting agent:", error);
+      toast.error("Failed to delete agent");
+    }
   };
 
   const getActiveListings = (id: string) => listings.filter(l => l.agent_id === id && l.status === 'active').length;
@@ -50,6 +92,10 @@ export default function AgentsPage() {
     { key: "active_listings", label: "Active Listings", render: (a: Agent) => getActiveListings(a.agent_id), sortable: false },
     { key: "total_sales", label: "Total Sales", render: (a: Agent) => getTotalSales(a.agent_id), sortable: false },
   ];
+
+  if (loading) {
+    return <div className="page-container"><p className="text-muted-foreground">Loading agents...</p></div>;
+  }
 
   return (
     <div className="page-container">
@@ -76,9 +122,17 @@ export default function AgentsPage() {
           </DialogContent>
         </Dialog>
       </div>
-      <DataTable data={agentsData} columns={columns} searchPlaceholder="Search agents..." actions={(a: Agent) => (
-        <Button variant="ghost" size="sm" onClick={() => { setEditing(a); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
-      )} />
+      <DataTable
+        data={agentsData}
+        columns={columns}
+        searchPlaceholder="Search agents..."
+        actions={(a: Agent) => (
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(a); setOpen(true); }}><Pencil className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => handleDelete(a.agent_id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        )}
+      />
     </div>
   );
 }
